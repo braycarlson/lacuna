@@ -1,0 +1,7 @@
+[build-system]
+requires = ["lacuna-build"]
+build-backend = "lacuna_build"
+
+[project]
+name = "example"
+dynamic = ["version", "summary"]

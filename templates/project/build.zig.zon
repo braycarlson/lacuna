@@ -1,0 +1,17 @@
+.{
+    .name = .example,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.17.0",
+    .fingerprint = 0x6eec9b9f5a17c3e1,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "pyproject.toml",
+        "src",
+        "tests",
+        "vendor",
+    },
+    .dependencies = .{
+        .lacuna = .{ .path = "vendor/lacuna" },
+    },
+}

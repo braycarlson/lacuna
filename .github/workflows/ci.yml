@@ -1,0 +1,91 @@
+name: ci
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+    workflow_call:
+
+permissions:
+    contents: read
+
+jobs:
+    ci:
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, windows-latest, macos-latest]
+                python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        runs-on: ${{ matrix.os }}
+        defaults:
+            run:
+                shell: bash
+        env:
+            UV_PYTHON: ${{ matrix.python }}+gil
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+              with:
+                  version: 0.17.0
+
+            - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+
+            - name: Install the interpreters, since uv never downloads a +gil request
+              run: uv python install "${{ matrix.python }}" 3.14 3.14t 3.15t pypy@3.11 pypy@3.12
+
+            - name: Run the continuous integration pipeline
+              run: zig build ci --summary all
+
+            - name: Run the unit tests in ReleaseSafe
+              run: zig build test:unit -Doptimize=safe --summary all
+
+            - name: Test every example under a debug Python and check the leak scripts
+              if: runner.os == 'Linux' && matrix.python == '3.14'
+              run: |
+                  uv python install 3.14+debug
+                  zig build test:debug --summary all
+
+            - name: Run every example suite under valgrind memcheck
+              if: runner.os == 'Linux' && matrix.python == '3.14'
+              run: |
+                  sudo apt-get install --yes valgrind
+                  uv venv "$RUNNER_TEMP/valgrind" --python 3.14+gil
+                  uv pip install --python "$RUNNER_TEMP/valgrind/bin/python" pytest
+                  PYTHONMALLOC=malloc zig build test:python -Doptimize=safe -Dcpu=x86_64_v3 \
+                      -Dpython=valgrind -Dpython=--error-exitcode=99 -Dpython=-q \
+                      -Dpython=--track-origins=yes "-Dpython=$RUNNER_TEMP/valgrind/bin/python" \
+                      --summary all
+
+            - name: Restore the ThreadSanitizer CPython
+              if: runner.os == 'Linux' && matrix.python == '3.14'
+              uses: actions/cache@v4
+              with:
+                  path: .zig-cache/tsan/prefix
+                  key: tsan-${{ runner.os }}-${{ hashFiles('tools/tsan.py') }}
+
+            - name: Test every example under a ThreadSanitizer free-threaded Python
+              if: runner.os == 'Linux' && matrix.python == '3.14'
+              run: |
+                  sudo sysctl vm.mmap_rnd_bits=28
+                  uv run --no-project python tools/tsan.py .zig-cache/tsan
+                  zig build test:tsan "-Dpython-tsan=$PWD/.zig-cache/tsan/venv/bin/python" --summary all
+
+            - name: Check the extern declarations against Python.h
+              run: |
+                  include=$(uv run --no-project python -c "import sysconfig; print(sysconfig.get_paths()['include'])")
+                  zig build test:abi "-Dpython-include=$include" --summary all
+
+            - name: Check the extern declarations against the free-threaded Python.h
+              run: |
+                  include=$(uv run --no-project --python 3.14t python -c "import sysconfig; print(sysconfig.get_paths()['include'])")
+                  zig build test:abi "-Dpython-include=$include" -Dpython-free-threaded=3.14 --summary all
+
+            - name: Check the extern declarations against each PyPy Python.h
+              if: runner.os == 'Linux'
+              run: |
+                  for version in 3.11 3.12; do
+                      include=$(uv run --no-project --python "pypy@$version" python -c "import sysconfig; print(sysconfig.get_paths()['include'])")
+                      zig build test:abi "-Dpython-include=$include" "-Dpython-pypy=$version" --summary all
+                  done

@@ -1,0 +1,14 @@
+.{
+    .name = .lacuna,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.17.0",
+    .fingerprint = 0xd0c4d5ceb8256912,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "LICENSE",
+        "src",
+        "tools",
+    },
+    .dependencies = .{},
+}
